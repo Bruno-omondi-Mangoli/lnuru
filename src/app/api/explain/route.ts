@@ -1,15 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildExplanationPrompt, STATIC_FALLBACK_EXPLANATION } from '@/lib/prompts';
+import {
+  buildMortgageExplanationPrompt,
+  buildLoanExplanationPrompt,
+  STATIC_FALLBACK_EXPLANATION,
+} from '@/lib/prompts';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { dealType, headline, headlineNumber, detail, affordBand, affordLabel, ratioPct } = body;
+  const { dealType, headline, headlineNumber, detail } = body;
 
-  const prompt = buildExplanationPrompt({ dealType, headline, headlineNumber, detail, affordBand, affordLabel, ratioPct });
-
-  // TEMP DEBUG: confirm env vars are actually present in this deployed function
-  console.log('DEBUG: GROQ_API_KEY present:', !!process.env.GROQ_API_KEY);
-  console.log('DEBUG: GROQ_CHAT_MODEL value:', process.env.GROQ_CHAT_MODEL);
+  const prompt =
+    dealType === 'mortgage'
+      ? buildMortgageExplanationPrompt({
+          headline,
+          headlineNumber,
+          detail,
+          affordBand: body.affordBand,
+          affordLabel: body.affordLabel,
+          ratioPct: body.ratioPct,
+        })
+      : buildLoanExplanationPrompt({
+          dealType,
+          headlineNumber,
+          detail,
+          immediateBand: body.immediateBand,
+          immediateLabel: body.immediateLabel,
+          immediateRatioPct: body.immediateRatioPct,
+          recurringBand: body.recurringBand,
+          recurringLabel: body.recurringLabel,
+          recurringRatioPct: body.recurringRatioPct,
+        });
 
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -22,19 +42,19 @@ export async function POST(req: NextRequest) {
         model: process.env.GROQ_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
-        max_tokens: 500,
+        max_tokens: 1000,
       }),
     });
-
-    const data = await response.json();
-
-    // TEMP DEBUG: log the full raw response
-    console.log('DEBUG: response.status:', response.status);
-    console.log('DEBUG: raw Groq response:', JSON.stringify(data, null, 2));
 
     if (!response.ok) {
       throw new Error(`Groq API error: ${response.status}`);
     }
+
+    const data = await response.json();
+
+    // TEMP DEBUG: see why the response ended (length = truncated, stop = finished normally)
+    console.log('DEBUG: finish_reason:', data.choices?.[0]?.finish_reason);
+    console.log('DEBUG: completion_tokens used:', data.usage?.completion_tokens);
 
     const text = data.choices?.[0]?.message?.content?.trim();
 

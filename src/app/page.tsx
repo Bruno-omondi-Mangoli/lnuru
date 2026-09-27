@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { trueCost, mortgagePayment, affordability, monthlyEquivalent } from '@/lib/calculators';
+import { trueCost, mortgagePayment, affordability, shortTermAffordability } from '@/lib/calculators';
 
 type DealType = 'digital' | 'sacco' | 'shylock' | 'mortgage';
 
@@ -16,12 +16,20 @@ function formatKSh(amount: number) {
   return `KSh ${Math.round(amount).toLocaleString('en-KE')}`;
 }
 
+type SingleAfford = ReturnType<typeof affordability>;
+type DualAfford = ReturnType<typeof shortTermAffordability>;
+
 type Result = {
   headline: string;
   headlineNumber: string;
   detail: string;
-  afford: ReturnType<typeof affordability>;
+  dealType: DealType;
+  afford: SingleAfford | DualAfford;
 };
+
+function isDual(afford: SingleAfford | DualAfford): afford is DualAfford {
+  return 'immediate' in afford;
+}
 
 type VoiceState = 'idle' | 'recording' | 'transcribing' | 'extracting';
 
@@ -165,18 +173,34 @@ export default function Home() {
     setExplaining(true);
     setExplanation('');
     try {
+      const afford = r.afford;
+      const payload = isDual(afford)
+        ? {
+            dealType: type,
+            headline: r.headline,
+            headlineNumber: r.headlineNumber,
+            detail: r.detail,
+            immediateBand: afford.immediate.band,
+            immediateLabel: afford.immediate.label,
+            immediateRatioPct: afford.immediate.ratio !== null ? Math.round(afford.immediate.ratio * 100) : null,
+            recurringBand: afford.recurring.band,
+            recurringLabel: afford.recurring.label,
+            recurringRatioPct: afford.recurring.ratio !== null ? Math.round(afford.recurring.ratio * 100) : null,
+          }
+        : {
+            dealType: type,
+            headline: r.headline,
+            headlineNumber: r.headlineNumber,
+            detail: r.detail,
+            affordBand: afford.band,
+            affordLabel: afford.label,
+            ratioPct: afford.ratio !== null ? Math.round(afford.ratio * 100) : null,
+          };
+
       const res = await fetch('/api/explain', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dealType: type,
-          headline: r.headline,
-          headlineNumber: r.headlineNumber,
-          detail: r.detail,
-          affordBand: r.afford.band,
-          affordLabel: r.afford.label,
-          ratioPct: r.afford.ratio !== null ? Math.round(r.afford.ratio * 100) : null,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       setExplanation(data.explanation);
@@ -213,6 +237,7 @@ export default function Home() {
           detail: `Total repayment over ${yrs} years: ${formatKSh(m.totalRepay)}. Total interest: ${formatKSh(
             m.totalInterest
           )}.`,
+          dealType,
           afford,
         };
       } else {
@@ -225,14 +250,14 @@ export default function Home() {
           return;
         }
         const c = trueCost(p, fee, interest, d);
-        const monthlyRepay = monthlyEquivalent(c.totalRepay, d);
-        const afford = affordability(monthlyRepay, income, expenditure);
+        const afford = shortTermAffordability(c.totalRepay, d, income, expenditure);
         r = {
           headline: 'True annual cost',
           headlineNumber: `${c.annualPct}%`,
           detail: `You'd repay ${formatKSh(c.totalRepay)} in total (cost of ${formatKSh(c.cost)}) over ${d} days.${
             dealType === 'shylock' && collateral ? ` Collateral held: ${collateral}.` : ''
           }`,
+          dealType,
           afford,
         };
       }
@@ -371,18 +396,51 @@ export default function Home() {
               <p className="text-sm text-gray-700">{result.detail}</p>
             </div>
 
-            <div className={`p-5 rounded-xl border-2 ${bandStyles[result.afford.band]}`}>
-              <p className="font-semibold mb-1">
-                Affordability: {result.afford.band === 'unknown' ? 'Unknown' : result.afford.band.toUpperCase()}
-              </p>
-              <p className="text-sm">{result.afford.label}</p>
-              {result.afford.ratio !== null && (
-                <p className="text-xs mt-2 opacity-75">
-                  Monthly disposable income: {formatKSh(result.afford.disposable)}. Repayment ratio:{' '}
-                  {Math.round(result.afford.ratio * 100)}%
+            {isDual(result.afford) ? (
+              <>
+                <div className={`p-5 rounded-xl border-2 ${bandStyles[result.afford.immediate.band]}`}>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-70 mb-1">This repayment</p>
+                  <p className="font-semibold mb-1">
+                    {result.afford.immediate.band === 'unknown' ? 'Unknown' : result.afford.immediate.band.toUpperCase()}
+                  </p>
+                  <p className="text-sm">{result.afford.immediate.label}</p>
+                  {result.afford.immediate.ratio !== null && (
+                    <p className="text-xs mt-2 opacity-75">
+                      Uses about {Math.round(result.afford.immediate.ratio * 100)}% of a normal month's surplus.
+                    </p>
+                  )}
+                </div>
+
+                <div className={`p-5 rounded-xl border-2 ${bandStyles[result.afford.recurring.band]}`}>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-70 mb-1">
+                    If this became a monthly habit
+                  </p>
+                  <p className="font-semibold mb-1">
+                    {result.afford.recurring.band === 'unknown' ? 'Unknown' : result.afford.recurring.band.toUpperCase()}
+                  </p>
+                  <p className="text-sm">{result.afford.recurring.label}</p>
+                  {result.afford.recurring.ratio !== null && (
+                    <p className="text-xs mt-2 opacity-75">
+                      Would use about {Math.round(result.afford.recurring.ratio * 100)}% of a normal month's surplus,
+                      equivalent to {formatKSh(result.afford.recurring.monthlyEquivalentRepay)} per month.
+                    </p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className={`p-5 rounded-xl border-2 ${bandStyles[result.afford.band]}`}>
+                <p className="font-semibold mb-1">
+                  Affordability: {result.afford.band === 'unknown' ? 'Unknown' : result.afford.band.toUpperCase()}
                 </p>
-              )}
-            </div>
+                <p className="text-sm">{result.afford.label}</p>
+                {result.afford.ratio !== null && (
+                  <p className="text-xs mt-2 opacity-75">
+                    Monthly disposable income: {formatKSh(result.afford.disposable)}. Repayment ratio:{' '}
+                    {Math.round(result.afford.ratio * 100)}%
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="bg-white p-5 rounded-xl border border-blue-200">
               {explaining ? (
