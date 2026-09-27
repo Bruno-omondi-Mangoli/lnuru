@@ -7,6 +7,10 @@ export async function POST(req: NextRequest) {
 
   const prompt = buildExplanationPrompt({ dealType, headline, headlineNumber, detail, affordBand, affordLabel, ratioPct });
 
+  // TEMP DEBUG: confirm env vars are actually present in this deployed function
+  console.log('DEBUG: GROQ_API_KEY present:', !!process.env.GROQ_API_KEY);
+  console.log('DEBUG: GROQ_CHAT_MODEL value:', process.env.GROQ_CHAT_MODEL);
+
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -22,11 +26,16 @@ export async function POST(req: NextRequest) {
       }),
     });
 
+    const data = await response.json();
+
+    // TEMP DEBUG: log the full raw response
+    console.log('DEBUG: response.status:', response.status);
+    console.log('DEBUG: raw Groq response:', JSON.stringify(data, null, 2));
+
     if (!response.ok) {
       throw new Error(`Groq API error: ${response.status}`);
     }
 
-    const data = await response.json();
     const text = data.choices?.[0]?.message?.content?.trim();
 
     if (!text) {
