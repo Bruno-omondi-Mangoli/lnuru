@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { trueCost, mortgagePayment, affordability, shortTermAffordability } from '@/lib/calculators';
+import { logAnalysis, fetchImpactStats } from '@/lib/supabase';
 
 type DealType = 'digital' | 'sacco' | 'shylock' | 'mortgage';
 
@@ -29,6 +30,10 @@ type Result = {
 
 function isDual(afford: SingleAfford | DualAfford): afford is DualAfford {
   return 'immediate' in afford;
+}
+
+function overallBand(afford: SingleAfford | DualAfford): string {
+  return isDual(afford) ? afford.recurring.band : afford.band;
 }
 
 type VoiceState = 'idle' | 'recording' | 'transcribing' | 'extracting';
@@ -62,6 +67,12 @@ export default function Home() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  const [stats, setStats] = useState<{ total: number; highRisk: number } | null>(null);
+
+  useEffect(() => {
+    fetchImpactStats().then(setStats);
+  }, []);
+
   function selectDeal(type: DealType) {
     setDealType(type);
     setStep('form');
@@ -88,6 +99,7 @@ export default function Home() {
     setVoiceState('idle');
     setVoiceError('');
     setTranscript('');
+    fetchImpactStats().then(setStats);
   }
 
   async function startRecording() {
@@ -270,6 +282,7 @@ export default function Home() {
       setResult(r);
       setStep('result');
       fetchExplanation(dealType, r);
+      logAnalysis(dealType, overallBand(r.afford));
     } catch {
       setError('Something went wrong with the calculation. Please check your numbers.');
     }
@@ -287,9 +300,14 @@ export default function Home() {
       <div className="w-full max-w-md">
         <h1 className="text-2xl font-bold text-center mb-1 text-green-700">Lnuru</h1>
         <p className="text-center text-gray-600 text-sm mb-1">Know the real cost. Know if you can afford it.</p>
-        <p className="text-center text-xs text-gray-500 mb-6">
+        <p className="text-center text-xs text-gray-500 mb-2">
           This gives you information, not financial advice. You decide.
         </p>
+        {stats && (
+          <p className="text-center text-xs text-gray-500 mb-6">
+            {stats.total} deals checked so far, {stats.highRisk} flagged as high-risk affordability.
+          </p>
+        )}
 
         {step === 'select' && (
           <div className="space-y-3">
