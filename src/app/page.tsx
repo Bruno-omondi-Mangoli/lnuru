@@ -218,6 +218,11 @@ export default function Home() {
     const income = parseFloat(monthlyIncome) || 0;
     const expenditure = parseFloat(monthlyExpenditure) || 0;
 
+    if (!dealType) {
+      setError('Please select a deal type.');
+      return;
+    }
+
     try {
       let r: Result;
 
@@ -237,7 +242,7 @@ export default function Home() {
           detail: `Total repayment over ${yrs} years: ${formatKSh(m.totalRepay)}. Total interest: ${formatKSh(
             m.totalInterest
           )}.`,
-          dealType,
+          dealType: 'mortgage',
           afford,
         };
       } else {
@@ -264,7 +269,7 @@ export default function Home() {
 
       setResult(r);
       setStep('result');
-      fetchExplanation(dealType as DealType, r);
+      fetchExplanation(dealType, r);
     } catch {
       setError('Something went wrong with the calculation. Please check your numbers.');
     }
